@@ -1,6 +1,6 @@
 # Google Docs ↔ Markdown Mirror
 
-**Edit Google Docs in your IDE. Push changes back. Formatting preserved.**
+**Edit Google Docs in your IDE as MD with Claude Code. Push changes back. Formatting preserved.**
 
 Works with Claude Code via MCP - ask Claude to read/edit your Google Docs directly.
 
