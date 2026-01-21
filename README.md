@@ -75,7 +75,7 @@ Add to your `~/.claude.json`:
 Then ask Claude:
 - *"List my Google Docs"*
 - *"Sync all documents"*
-- *"Push changes to my resume"*
+- *"Push changes to my Briefing_XYZ doc"*
 
 ---
 
