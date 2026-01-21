@@ -93,7 +93,7 @@ export interface FrontmatterData {
 
 export interface PushBackend {
   name: string;
-  updateMarkdown(fileId: string, markdown: string, title?: string): Promise<void>;
+  updateMarkdown(fileId: string, markdown: string, title?: string, originalMarkdown?: string): Promise<void>;
   isAvailable(): Promise<boolean>;
 }
 

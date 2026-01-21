@@ -263,7 +263,11 @@ export class SyncEngine {
       const backend = await getPushBackend(this.config.pushBackend);
 
       try {
-        await backend.updateMarkdown(fileId, markdownContent, doc.title || undefined);
+        // Fetch current content from Google Docs for surgical diff
+        const originalMarkdown = await exportDocumentAsMarkdown(fileId);
+
+        // Use surgical replacement (pass original for diff comparison)
+        await backend.updateMarkdown(fileId, markdownContent, doc.title || undefined, originalMarkdown || undefined);
       } catch (error: unknown) {
         const err = error as { message?: string };
         logger.error({ error, fileId }, 'Failed to push markdown');

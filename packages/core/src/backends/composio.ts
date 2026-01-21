@@ -46,7 +46,7 @@ export class ComposioPushBackend implements PushBackend {
   /**
    * Update a Google Doc with markdown content
    */
-  async updateMarkdown(fileId: string, markdown: string, title?: string): Promise<void> {
+  async updateMarkdown(fileId: string, markdown: string, title?: string, _originalMarkdown?: string): Promise<void> {
     const logger = getLogger();
 
     if (!this.apiKey) {

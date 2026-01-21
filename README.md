@@ -1,29 +1,96 @@
 # Google Docs ↔ Markdown Mirror
 
-A bidirectional sync solution that mirrors Google Docs as local Markdown files. Works with Google Drive for Desktop to enable viewing and editing Google Docs as `.md` files.
+> **Seamlessly sync Google Docs with local Markdown files** — Edit in your IDE, push to Google Docs, preserve formatting.
+
+[![Node.js](https://img.shields.io/badge/Node.js-18+-green.svg)](https://nodejs.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue.svg)](https://www.typescriptlang.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+---
+
+## Why This Exists
+
+Google Docs is great for collaboration, but developers often prefer working in their IDE with Markdown. This tool bridges that gap:
+
+- **Write in your IDE** → Changes sync to Google Docs
+- **Collaborate in Google Docs** → Changes sync to local `.md` files
+- **AI-powered editing** → Claude Code can read/edit your Google Docs via MCP
+
+### Use Cases
+
+- **Technical writers**: Draft in Markdown, share polished Google Docs
+- **Developers**: Keep documentation in sync between repo and Google Drive
+- **AI workflows**: Let Claude Code access and edit your Google Docs directly
+- **Content teams**: Collaborate in Google Docs, version control in Git
+
+---
 
 ## Features
 
-- 🔄 **Bidirectional Sync**: Pull Google Docs as Markdown, push local edits back
-- 👀 **Watch Mode**: Automatic sync on file changes
-- 🔀 **Conflict Handling**: Safe handling of concurrent edits with conflict resolution
-- 📦 **MCP Server**: Integration with Claude Code and other AI agents
-- 🗄️ **SQLite State**: Reliable tracking of sync state
-- 🔐 **OAuth2 Auth**: Secure Google authentication
+| Feature | Description |
+|---------|-------------|
+| **Bidirectional Sync** | Pull Google Docs → Markdown, push Markdown → Google Docs |
+| **Surgical Updates** | Only changed text is updated, preserving Google Docs formatting |
+| **Watch Mode** | Auto-sync when files change |
+| **Conflict Resolution** | Safe handling of concurrent edits |
+| **MCP Server** | AI agent integration (Claude Code, etc.) |
+| **SQLite State** | Reliable sync state tracking |
+| **OAuth2 Auth** | Secure Google authentication |
+
+---
+
+## Table of Contents
+
+1. [Quick Start](#quick-start)
+2. [Installation](#installation)
+3. [Google Cloud Setup](#google-cloud-setup)
+4. [Configuration](#configuration)
+5. [CLI Commands](#cli-commands)
+6. [Watch Mode](#watch-mode)
+7. [MCP Server (AI Integration)](#mcp-server-ai-integration)
+8. [How It Works](#how-it-works)
+9. [Troubleshooting](#troubleshooting)
+10. [Development](#development)
+
+---
 
 ## Quick Start
 
+```bash
+# 1. Clone and install
+git clone https://github.com/gauravg16/gdocs-md-mirror.git
+cd gdocs-md-mirror
+npm install && npm run build
+
+# 2. Set credentials (see Google Cloud Setup below)
+export GOOGLE_CLIENT_ID="your-client-id"
+export GOOGLE_CLIENT_SECRET="your-client-secret"
+
+# 3. Initialize
+node packages/cli/dist/index.js init
+
+# 4. Sync all Google Docs
+node packages/cli/dist/index.js sync --all
+
+# 5. Check status
+node packages/cli/dist/index.js status
+```
+
+---
+
+## Installation
+
 ### Prerequisites
 
-- Node.js 18+
-- Google Drive for Desktop installed and syncing
-- Google Cloud project with OAuth credentials
+- **Node.js 18+** — [Download](https://nodejs.org/)
+- **Google Drive for Desktop** — [Download](https://www.google.com/drive/download/) (optional, but recommended)
+- **Google Cloud Project** with OAuth credentials (see setup below)
 
-### Installation
+### Install from Source
 
 ```bash
 # Clone the repository
-git clone <repo-url>
+git clone https://github.com/gauravg16/gdocs-md-mirror.git
 cd gdocs-md-mirror
 
 # Install dependencies
@@ -31,297 +98,541 @@ npm install
 
 # Build all packages
 npm run build
+
+# Verify installation
+node packages/cli/dist/index.js doctor
 ```
 
-### Setup
+### Directory Structure
 
-1. **Create Google OAuth Credentials**
-
-   - Go to [Google Cloud Console](https://console.cloud.google.com/apis/credentials)
-   - Create a new OAuth 2.0 Client ID (Desktop application)
-   - Enable the Google Drive API and Google Docs API
-   - Download the credentials
-
-2. **Set Environment Variables**
-
-   ```bash
-   export GOOGLE_CLIENT_ID="your-client-id"
-   export GOOGLE_CLIENT_SECRET="your-client-secret"
-
-   # Optional: For Composio push backend (recommended)
-   export COMPOSIO_API_KEY="your-composio-api-key"
-   ```
-
-3. **Initialize gdocs-md**
-
-   ```bash
-   npm run gdocs-md init
-   ```
-
-   This will:
-   - Ask for your Google Drive sync folder location
-   - Configure mirror mode (sibling or shadow)
-   - Set up OAuth authentication
-
-4. **Verify Setup**
-
-   ```bash
-   npm run gdocs-md doctor
-   ```
-
-## Usage
-
-### CLI Commands
-
-```bash
-# Sync all documents
-npm run gdocs-md sync --all
-
-# Sync a specific file
-npm run gdocs-md sync --file "path/to/document.gdoc"
-
-# Start watch mode (auto-sync on changes)
-npm run gdocs-md watch
-
-# View sync status
-npm run gdocs-md status
-
-# Open a document in browser
-npm run gdocs-md open "path/to/document.gdoc"
-
-# Push local markdown changes
-npm run gdocs-md push "path/to/document.md"
-
-# Check configuration
-npm run gdocs-md doctor
+```
+gdocs-md-mirror/
+├── packages/
+│   ├── core/       # Core library (parser, db, sync engine, Google client)
+│   ├── cli/        # Command-line interface
+│   └── mcp/        # MCP server for AI agents
+├── docs/           # Documentation
+└── test/           # Test fixtures
 ```
 
-### Mirror Modes
-
-**Sibling Mode (default)**
-```
-Documents/
-├── MyDoc.gdoc
-├── MyDoc.md          ← Created by gdocs-md
-├── Report.gdoc
-└── Report.md         ← Created by gdocs-md
-```
-
-**Shadow Mode**
-```
-Documents/
-├── MyDoc.gdoc
-├── Report.gdoc
-└── .gdocs_md/
-    ├── MyDoc.md      ← Created by gdocs-md
-    └── Report.md     ← Created by gdocs-md
-```
-
-### Markdown Frontmatter
-
-Generated `.md` files include YAML frontmatter with metadata:
-
-```markdown
----
-gdocs_mirror:
-  fileId: "1ABC123xyz"
-  webViewLink: "https://docs.google.com/document/d/1ABC123xyz/edit"
-  lastPulledAt: "2024-01-15T10:30:00Z"
-  title: "My Document"
 ---
 
-# Document Content
+## Google Cloud Setup
 
-Your document content here...
-```
+### Step 1: Create a Google Cloud Project
 
-### Conflict Resolution
+1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+2. Click **Select a project** → **New Project**
+3. Name it (e.g., "gdocs-md-mirror") and click **Create**
 
-When both local and remote are modified:
+### Step 2: Enable Required APIs
 
-1. The remote version is saved as `document.remote.<timestamp>.md`
-2. Your local version is preserved as the main file
-3. Status shows the conflict
+1. Go to [API Library](https://console.cloud.google.com/apis/library)
+2. Search and enable:
+   - **Google Drive API**
+   - **Google Docs API**
 
-To resolve:
+### Step 3: Configure OAuth Consent Screen
+
+1. Go to [OAuth consent screen](https://console.cloud.google.com/apis/credentials/consent)
+2. Select **External** (or Internal if using Google Workspace)
+3. Fill in:
+   - **App name**: `gdocs-md-mirror`
+   - **User support email**: Your email
+   - **Developer contact**: Your email
+4. Click **Save and Continue**
+5. On **Scopes**, click **Add or Remove Scopes** and add:
+   - `https://www.googleapis.com/auth/drive.readonly`
+   - `https://www.googleapis.com/auth/drive.file`
+   - `https://www.googleapis.com/auth/documents`
+6. Click **Save and Continue** → **Back to Dashboard**
+
+### Step 4: Create OAuth Credentials
+
+1. Go to [Credentials](https://console.cloud.google.com/apis/credentials)
+2. Click **Create Credentials** → **OAuth client ID**
+3. Select **Web application** (not Desktop)
+4. Add **Authorized redirect URIs**:
+   ```
+   http://localhost:3000/oauth2callback
+   ```
+5. Click **Create**
+6. Copy the **Client ID** and **Client Secret**
+
+### Step 5: Set Environment Variables
+
+Create a `.env` file in the project root (add to `.gitignore`):
+
 ```bash
-# View conflicts
-npm run gdocs-md status
-
-# After manually merging, resolve the conflict
-npm run gdocs-md sync --resolve "path/to/document.md"
+# .env
+GOOGLE_CLIENT_ID="486081548883-xxxxx.apps.googleusercontent.com"
+GOOGLE_CLIENT_SECRET="GOCSPX-xxxxxxxxxxxxx"
 ```
 
-## MCP Server
+Load before running commands:
 
-The MCP server enables AI agents (like Claude Code) to interact with your Google Docs mirror.
+```bash
+source .env && export GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET
+```
 
-### Configuration
+---
 
-Add to your Claude Code MCP config (`.claude/mcp.json`):
+## Configuration
+
+### Initialize Configuration
+
+```bash
+node packages/cli/dist/index.js init
+```
+
+This interactive wizard will:
+1. Ask for your Google Drive folder location
+2. Configure mirror mode (sibling or shadow)
+3. Start OAuth authentication flow
+
+### Configuration File
+
+Located at `~/.config/gdocs-md/config.json`:
 
 ```json
 {
-  "mcpServers": {
-    "gdocs-md": {
-      "command": "node",
-      "args": ["/path/to/gdocs-md-mirror/packages/mcp/dist/index.js"],
-      "env": {
-        "GOOGLE_CLIENT_ID": "your-client-id",
-        "GOOGLE_CLIENT_SECRET": "your-client-secret"
+  "rootFolder": "/Users/you/Library/CloudStorage/GoogleDrive-you@gmail.com/My Drive",
+  "mirrorMode": "sibling",
+  "shadowRoot": ".gdocs_md",
+  "pollingIntervalSeconds": 60,
+  "pushBackend": "docs_api",
+  "ignorePatterns": ["**/node_modules/**", "**/.git/**"],
+  "logLevel": "info"
+}
+```
+
+### Configuration Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `rootFolder` | Path to your Google Drive sync folder | Required |
+| `mirrorMode` | `sibling` (same folder) or `shadow` (hidden folder) | `sibling` |
+| `shadowRoot` | Hidden folder name for shadow mode | `.gdocs_md` |
+| `pollingIntervalSeconds` | How often to check for remote changes | `60` |
+| `pushBackend` | `docs_api` (direct) or `composio` (via Composio API) | `docs_api` |
+| `ignorePatterns` | Glob patterns to skip | `["**/node_modules/**"]` |
+| `logLevel` | `debug`, `info`, `warn`, `error` | `info` |
+
+### Mirror Modes Explained
+
+**Sibling Mode** (recommended) — Markdown files alongside `.gdoc` files:
+
+```
+My Drive/
+├── Project Proposal.gdoc
+├── Project Proposal.md      ← Created by sync
+├── Meeting Notes.gdoc
+└── Meeting Notes.md         ← Created by sync
+```
+
+**Shadow Mode** — Markdown files in a hidden folder:
+
+```
+My Drive/
+├── Project Proposal.gdoc
+├── Meeting Notes.gdoc
+└── .gdocs_md/
+    ├── Project Proposal.md  ← Created by sync
+    └── Meeting Notes.md     ← Created by sync
+```
+
+---
+
+## CLI Commands
+
+### Sync Commands
+
+```bash
+# Sync all .gdoc files in your Drive
+node packages/cli/dist/index.js sync --all
+
+# Sync a specific file
+node packages/cli/dist/index.js sync --file "path/to/document.gdoc"
+
+# Preview changes without applying (dry run)
+node packages/cli/dist/index.js sync --all --dry-run
+
+# Resolve a conflict
+node packages/cli/dist/index.js sync --resolve "path/to/document.md"
+```
+
+### Push Command
+
+```bash
+# Push local markdown changes back to Google Docs
+node packages/cli/dist/index.js push "path/to/document.md"
+```
+
+**Important**: The push uses "surgical replacement" — only changed text is updated, preserving your Google Docs formatting (fonts, tables, images, etc.).
+
+### Status Command
+
+```bash
+# View sync status for all documents
+node packages/cli/dist/index.js status
+```
+
+Output:
+```
+📊 gdocs-md Status
+
+Overview
+  Total documents: 4
+  Synced: 4
+  Conflicts: 0
+  Last sync: 1/21/2026, 9:15:00 PM
+
+Configuration
+  Root folder: /Users/you/Google Drive/My Drive
+  Mirror mode: sibling
+  Push backend: docs_api
+
+Recent Activity
+  9:15:00 PM push
+  9:10:00 PM pull
+```
+
+### Other Commands
+
+```bash
+# Open document in browser
+node packages/cli/dist/index.js open "path/to/document.gdoc"
+
+# Check configuration and connectivity
+node packages/cli/dist/index.js doctor
+
+# Show help
+node packages/cli/dist/index.js --help
+```
+
+---
+
+## Watch Mode
+
+Watch mode automatically syncs when files change:
+
+```bash
+# Start watching (runs continuously)
+node packages/cli/dist/index.js watch
+```
+
+What it does:
+- **New `.gdoc` file detected** → Creates corresponding `.md` file
+- **Google Doc updated remotely** → Updates local `.md` file
+- **Local `.md` file edited** → Queues for push (manual or auto)
+
+### Run in Background
+
+```bash
+# Run as background process
+nohup node packages/cli/dist/index.js watch > ~/.gdocs-md.log 2>&1 &
+
+# Check logs
+tail -f ~/.gdocs-md.log
+
+# Stop the watcher
+pkill -f "gdocs-md.*watch"
+```
+
+### Shell Alias (Recommended)
+
+Add to your `~/.zshrc` or `~/.bashrc`:
+
+```bash
+# Add this line
+alias gdocs-md='cd /path/to/gdocs-md-mirror && source .env && export GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET && node packages/cli/dist/index.js'
+```
+
+Then use:
+```bash
+gdocs-md sync --all
+gdocs-md watch
+gdocs-md status
+gdocs-md push "My Doc.md"
+```
+
+---
+
+## MCP Server (AI Integration)
+
+The MCP (Model Context Protocol) server allows AI agents like **Claude Code** to interact with your Google Docs.
+
+### Setup for Claude Code
+
+Add to your `~/.claude.json` under your project's `mcpServers`:
+
+```json
+{
+  "projects": {
+    "/your/project/path": {
+      "mcpServers": {
+        "gdocs-md-mirror": {
+          "type": "stdio",
+          "command": "node",
+          "args": ["/path/to/gdocs-md-mirror/packages/mcp/dist/index.js"],
+          "env": {
+            "GOOGLE_CLIENT_ID": "your-client-id",
+            "GOOGLE_CLIENT_SECRET": "your-client-secret"
+          }
+        }
       }
     }
   }
 }
 ```
 
-### Available Tools
+### Available MCP Tools
 
 | Tool | Description |
 |------|-------------|
-| `mirror_list` | List all tracked documents |
-| `mirror_sync_all` | Sync all documents |
-| `mirror_sync_one` | Sync a specific document |
-| `mirror_status` | Get sync status overview |
-| `mirror_open_doc` | Get web URL for a document |
-| `mirror_push_one` | Push local changes to Google Doc |
+| `mirror_list` | List all tracked Google Docs and their Markdown mirrors |
+| `mirror_sync_all` | Sync all Google Docs to their Markdown mirrors |
+| `mirror_sync_one` | Sync a specific Google Doc or Markdown file |
+| `mirror_status` | Get the current sync status overview |
+| `mirror_open_doc` | Get the web URL for a Google Doc |
+| `mirror_push_one` | Push local Markdown changes to the corresponding Google Doc |
 
-## Configuration
+### Example Usage with Claude Code
 
-Configuration is stored at `~/.config/gdocs-md/config.json`:
+After configuring, you can ask Claude:
 
-```json
-{
-  "rootFolder": "/Users/me/Google Drive/My Drive",
-  "mirrorMode": "sibling",
-  "shadowRoot": ".gdocs_md",
-  "pollingIntervalSeconds": 60,
-  "pushBackend": "composio",
-  "ignorePatterns": ["**/node_modules/**", "**/.git/**"],
-  "logLevel": "info"
-}
+- *"List my Google Docs mirrors"*
+- *"Sync all my documents"*
+- *"Push changes to my resume"*
+- *"What's the sync status?"*
+
+---
+
+## How It Works
+
+### Architecture
+
+```
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│  Google Docs    │────▶│  gdocs-md-mirror │────▶│  Local .md      │
+│  (Cloud)        │◀────│  (Sync Engine)   │◀────│  (Your IDE)     │
+└─────────────────┘     └─────────────────┘     └─────────────────┘
+                               │
+                        ┌──────┴──────┐
+                        │   SQLite    │
+                        │   State DB  │
+                        └─────────────┘
 ```
 
-### Options
+### Sync Flow
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `rootFolder` | Path to Google Drive sync folder | - |
-| `mirrorMode` | `sibling` or `shadow` | `sibling` |
-| `shadowRoot` | Shadow folder name (if shadow mode) | `.gdocs_md` |
-| `pollingIntervalSeconds` | Remote change poll interval | `60` |
-| `pushBackend` | `composio` or `docs_api` | `composio` |
-| `ignorePatterns` | Glob patterns to ignore | `[...]` |
-| `logLevel` | `debug`, `info`, `warn`, `error` | `info` |
+**Pull (Google Docs → Markdown)**:
+1. Read `.gdoc` file (JSON pointer to Google Doc)
+2. Fetch document via Google Docs API
+3. Export as Markdown
+4. Add YAML frontmatter with metadata
+5. Write to local `.md` file
+6. Update SQLite state
 
-## Push Backends
+**Push (Markdown → Google Docs)**:
+1. Read local `.md` file
+2. Fetch current Google Doc content
+3. Diff to find changed text only
+4. Use `replaceAllText` API (preserves formatting!)
+5. Update SQLite state
 
-### Composio (Recommended)
+### Frontmatter Format
 
-Uses Composio API for reliable Markdown-to-Google Docs conversion with full formatting support.
+Every generated `.md` file includes metadata:
 
-Requirements:
-- Sign up at [composio.dev](https://composio.dev)
-- Set `COMPOSIO_API_KEY` environment variable
+```yaml
+---
+gdocs_mirror:
+  fileId: 1H14shVL39hSFYNaQ91YbiNK-ZvevasLRZFPPs72NnsQ
+  webViewLink: https://docs.google.com/document/d/.../edit
+  title: My Document
+  lastPulledAt: '2026-01-21T15:38:33.905Z'
+---
 
-### Google Docs API (Fallback)
+# Document Content
 
-Direct Google Docs API calls with basic Markdown support:
+Your content here...
+```
 
-**Supported:**
-- Headings (H1-H6)
-- Paragraphs
-- Bold and italic
-- Bullet and numbered lists
-- Links
+### Conflict Resolution
 
-**Not Supported:**
-- Code blocks (converted to plain text)
-- Tables
-- Images
+When both local and remote are modified:
 
-## Security
+1. Remote version saved as `document.remote.<timestamp>.md`
+2. Local version preserved as main file
+3. Status shows conflict
 
-### OAuth Tokens
+To resolve:
+```bash
+# View conflicts
+node packages/cli/dist/index.js status
 
-- Tokens are stored at `~/.config/gdocs-md/tokens.json` with 0600 permissions
-- On macOS, you can optionally store in Keychain (future enhancement)
+# After manually merging changes:
+node packages/cli/dist/index.js sync --resolve "path/to/document.md"
+```
 
-### Required Scopes
-
-- `https://www.googleapis.com/auth/drive.readonly` - Read .gdoc metadata
-- `https://www.googleapis.com/auth/drive.file` - Export content
-- `https://www.googleapis.com/auth/documents` - Update documents
-
-### Best Practices
-
-- Never commit OAuth credentials to version control
-- Use environment variables for secrets
-- Review permissions before authorizing
+---
 
 ## Troubleshooting
 
-### "gdocs-md not initialized"
+### "redirect_uri_mismatch" Error
 
-Run `npm run gdocs-md init` to set up configuration.
+**Cause**: OAuth redirect URI not configured in Google Cloud Console.
+
+**Fix**:
+1. Go to [Google Cloud Credentials](https://console.cloud.google.com/apis/credentials)
+2. Edit your OAuth client
+3. Add this exact URI to **Authorized redirect URIs**:
+   ```
+   http://localhost:3000/oauth2callback
+   ```
 
 ### "Not authenticated with Google"
 
-Run `npm run gdocs-md init` to re-authenticate. Make sure `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are set.
+**Fix**: Re-run authentication:
+```bash
+source .env && export GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET
+node packages/cli/dist/index.js init
+```
 
-### ".gdoc file not parsed correctly"
+### "gdocs-md not initialized"
 
-The tool supports standard `.gdoc` format from Google Drive for Desktop. Check that:
-- The file is a valid JSON file
-- It contains a `url` field with a docs.google.com URL
+**Fix**: Run the init command:
+```bash
+node packages/cli/dist/index.js init
+```
 
-### "Sync conflicts"
+### Push destroys Google Docs formatting
 
-Use `npm run gdocs-md status` to see conflicts, then:
-1. Review the `.remote.<timestamp>.md` file
-2. Merge changes into your main `.md` file
-3. Run `npm run gdocs-md sync --resolve "path/to/file.md"`
+**Cause**: Using old version without surgical replacement.
+
+**Fix**: Update to latest version. The current implementation uses `replaceAllText` API which only changes specific text, preserving all formatting.
+
+### "No text changes detected" when pushing
+
+**Cause**: The diff algorithm didn't find meaningful differences.
+
+**Fix**: This is normal if only whitespace or formatting changed. The tool only pushes actual text content changes.
 
 ### Watch mode not detecting changes
 
-- Ensure the polling interval is reasonable (default 60s)
-- Check file permissions on the Drive folder
-- On some systems, inotify limits may need adjustment
+**Possible causes**:
+1. File system events not propagating (try increasing polling interval)
+2. Google Drive for Desktop sync delay
+3. File permissions issue
+
+**Fix**: Check logs with `--log-level debug`:
+```bash
+node packages/cli/dist/index.js watch --log-level debug
+```
+
+---
 
 ## Development
-
-### Project Structure
-
-```
-packages/
-├── core/        # Core library (parser, db, sync engine)
-├── cli/         # Command-line interface
-└── mcp/         # MCP server for AI agents
-
-docs/
-└── design.md    # Architecture documentation
-
-test/
-└── fixtures/    # Test fixtures
-```
 
 ### Building
 
 ```bash
-npm run build     # Build all packages
-npm run clean     # Clean build artifacts
+# Build all packages
+npm run build
+
+# Build specific package
+npm run build --workspace=@gdocs-md/core
+
+# Clean build artifacts
+npm run clean
 ```
 
 ### Testing
 
 ```bash
-npm run test      # Run all tests
+# Run all tests
+npm run test
+
+# Run with coverage
+npm run test -- --coverage
 ```
+
+### Project Structure
+
+```
+packages/
+├── core/                 # Core library
+│   ├── src/
+│   │   ├── db/          # SQLite database operations
+│   │   ├── google/      # Google API client & OAuth
+│   │   ├── parser/      # .gdoc parser & frontmatter
+│   │   ├── sync/        # Sync engine & watcher
+│   │   ├── backends/    # Push backends (Docs API, Composio)
+│   │   └── utils/       # Logger, retry, hash utilities
+│   └── package.json
+├── cli/                  # CLI application
+│   ├── src/
+│   │   └── commands/    # init, sync, watch, status, etc.
+│   └── package.json
+└── mcp/                  # MCP server
+    ├── src/
+    │   └── index.ts     # MCP tool implementations
+    └── package.json
+```
+
+---
+
+## Security
+
+### OAuth Tokens
+
+- Stored at `~/.config/gdocs-md/tokens.json`
+- File permissions set to `0600` (owner read/write only)
+- Refresh tokens auto-renew access tokens
+
+### Required OAuth Scopes
+
+| Scope | Purpose |
+|-------|---------|
+| `drive.readonly` | Read `.gdoc` file metadata |
+| `drive.file` | Export document content |
+| `documents` | Update document content |
+
+### Best Practices
+
+- **Never commit credentials** to version control
+- Add `.env` to `.gitignore`
+- Use environment variables for secrets
+- Review OAuth permissions when authorizing
+
+---
 
 ## License
 
-MIT
+MIT License - see [LICENSE](LICENSE) for details.
+
+---
 
 ## Contributing
 
-Contributions are welcome! Please read the design document in `docs/design.md` before making changes.
+Contributions welcome! Please:
+
+1. Fork the repository
+2. Create a feature branch
+3. Submit a pull request
+
+For major changes, please open an issue first to discuss.
+
+---
+
+## Credits
+
+Built by [Gaurav Gupta](https://github.com/gauravg16)
+
+---
+
+## Support
+
+- **Issues**: [GitHub Issues](https://github.com/gauravg16/gdocs-md-mirror/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/gauravg16/gdocs-md-mirror/discussions)

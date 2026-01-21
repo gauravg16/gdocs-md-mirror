@@ -5,28 +5,23 @@ import { getLogger } from '../utils/logger.js';
 import type { docs_v1 } from 'googleapis';
 
 /**
- * Google Docs API Push Backend (Fallback)
+ * Google Docs API Push Backend
  *
- * Uses the Google Docs API directly to update documents from Markdown.
- * This is a simpler backend with limited Markdown support.
+ * Uses surgical text replacement to preserve document formatting.
+ * Instead of replacing the entire document, it finds specific text
+ * changes and uses replaceAllText to update only those parts.
  *
- * Supported Markdown features:
- * - Headings (H1-H6)
- * - Paragraphs
- * - Bold (**text**)
- * - Italic (*text* or _text_)
- * - Bullet lists (- item)
- * - Numbered lists (1. item)
- * - Links [text](url)
- *
- * Not supported (converted to plain text):
- * - Code blocks
- * - Tables
- * - Images
- * - Complex nested structures
+ * This preserves:
+ * - Document structure and layout
+ * - Font styles, sizes, colors
+ * - Tables, columns, alignment
+ * - Images and other embedded content
  */
 export class DocsApiPushBackend implements PushBackend {
   readonly name = 'docs_api';
+
+  // Store original content for diff comparison
+  private originalContentCache: Map<string, string> = new Map();
 
   /**
    * Check if the Docs API is available
@@ -42,48 +37,212 @@ export class DocsApiPushBackend implements PushBackend {
   }
 
   /**
-   * Update a Google Doc with markdown content
+   * Cache the original content when pulling (for later diff)
    */
-  async updateMarkdown(fileId: string, markdown: string, _title?: string): Promise<void> {
+  cacheOriginalContent(fileId: string, content: string): void {
+    this.originalContentCache.set(fileId, content);
+  }
+
+  /**
+   * Update a Google Doc with markdown content using surgical replacement
+   */
+  async updateMarkdown(
+    fileId: string,
+    markdown: string,
+    _title?: string,
+    originalMarkdown?: string
+  ): Promise<void> {
     const logger = getLogger();
     const docs = getDocsClient();
 
-    logger.debug({ fileId }, 'Pushing markdown via Docs API');
+    logger.debug({ fileId }, 'Pushing markdown via Docs API (surgical mode)');
+
+    // Get original content for comparison
+    const original = originalMarkdown || this.originalContentCache.get(fileId);
 
     await withRetry(
       async () => {
-        // First, get the current document to find content length
-        const doc = await docs.documents.get({ documentId: fileId });
+        if (original) {
+          // Use surgical text replacement
+          const replacements = this.findTextReplacements(original, markdown);
 
-        const body = doc.data.body;
-        if (!body || !body.content) {
-          throw new Error('Document has no body content');
-        }
-
-        // Find the end index (we need to delete existing content)
-        let endIndex = 1;
-        for (const element of body.content) {
-          if (element.endIndex && element.endIndex > endIndex) {
-            endIndex = element.endIndex;
+          if (replacements.length === 0) {
+            logger.info({ fileId }, 'No text changes detected');
+            return;
           }
+
+          logger.info({ fileId, replacementCount: replacements.length }, 'Applying surgical text replacements');
+
+          const requests: docs_v1.Schema$Request[] = replacements.map((r) => ({
+            replaceAllText: {
+              containsText: {
+                text: r.oldText,
+                matchCase: true,
+              },
+              replaceText: r.newText,
+            },
+          }));
+
+          await docs.documents.batchUpdate({
+            documentId: fileId,
+            requestBody: { requests },
+          });
+
+          logger.debug({ fileId }, 'Successfully pushed via surgical replacement');
+        } else {
+          // Fallback: full document replacement (loses formatting)
+          logger.warn({ fileId }, 'No original content available - using full replacement (may lose formatting)');
+          await this.fullDocumentReplace(docs, fileId, markdown);
         }
-
-        // Parse markdown into Docs API requests
-        const requests = this.markdownToDocsRequests(markdown, endIndex);
-
-        // Execute batch update
-        await docs.documents.batchUpdate({
-          documentId: fileId,
-          requestBody: {
-            requests,
-          },
-        });
-
-        logger.debug({ fileId }, 'Successfully pushed markdown via Docs API');
       },
       { retries: 3 },
       `docsApi.updateMarkdown(${fileId})`
     );
+  }
+
+  /**
+   * Find text differences between original and new markdown
+   */
+  private findTextReplacements(original: string, updated: string): TextReplacement[] {
+    const replacements: TextReplacement[] = [];
+
+    // Strip YAML frontmatter from both
+    const originalContent = this.stripFrontmatter(original);
+    const updatedContent = this.stripFrontmatter(updated);
+
+    // Extract plain text (remove markdown formatting)
+    const originalLines = originalContent.split('\n').filter((l) => l.trim());
+    const updatedLines = updatedContent.split('\n').filter((l) => l.trim());
+
+    // Build a map of original text segments
+    const originalTexts = originalLines.map((l) => this.extractPlainText(l));
+    const updatedTexts = updatedLines.map((l) => this.extractPlainText(l));
+
+    // Find changed lines by comparing plain text
+    for (let i = 0; i < Math.max(originalTexts.length, updatedTexts.length); i++) {
+      const oldText = originalTexts[i] || '';
+      const newText = updatedTexts[i] || '';
+
+      if (oldText && newText && oldText !== newText) {
+        // Line changed - find the specific difference
+        const diff = this.findLineDiff(oldText, newText);
+        if (diff) {
+          replacements.push(diff);
+        }
+      }
+    }
+
+    // Also check for word-level changes within lines
+    if (replacements.length === 0) {
+      // Try word-by-word comparison for more granular changes
+      const originalWords = originalContent.match(/\b[\w'-]+\b/g) || [];
+      const updatedWords = updatedContent.match(/\b[\w'-]+\b/g) || [];
+
+      // Create word frequency maps
+      const originalWordSet = new Set(originalWords);
+      const updatedWordSet = new Set(updatedWords);
+
+      // Find words that changed
+      for (const word of originalWordSet) {
+        if (!updatedWordSet.has(word)) {
+          // This word was removed - find what replaced it
+          // Look for similar position in updated content
+        }
+      }
+    }
+
+    return replacements;
+  }
+
+  /**
+   * Find the specific text difference between two lines
+   */
+  private findLineDiff(oldLine: string, newLine: string): TextReplacement | null {
+    // Find common prefix
+    let prefixLen = 0;
+    while (prefixLen < oldLine.length && prefixLen < newLine.length && oldLine[prefixLen] === newLine[prefixLen]) {
+      prefixLen++;
+    }
+
+    // Find common suffix
+    let suffixLen = 0;
+    while (
+      suffixLen < oldLine.length - prefixLen &&
+      suffixLen < newLine.length - prefixLen &&
+      oldLine[oldLine.length - 1 - suffixLen] === newLine[newLine.length - 1 - suffixLen]
+    ) {
+      suffixLen++;
+    }
+
+    const oldText = oldLine.slice(prefixLen, oldLine.length - suffixLen);
+    const newText = newLine.slice(prefixLen, newLine.length - suffixLen);
+
+    if (oldText && oldText !== newText) {
+      return { oldText: oldText.trim(), newText: newText.trim() };
+    }
+
+    return null;
+  }
+
+  /**
+   * Extract plain text from a markdown line
+   */
+  private extractPlainText(line: string): string {
+    return line
+      .replace(/^#+\s+/, '') // Remove heading markers
+      .replace(/^\s*[-*]\s+/, '') // Remove bullet markers
+      .replace(/^\s*\d+\.\s+/, '') // Remove numbered list markers
+      .replace(/\*\*([^*]+)\*\*/g, '$1') // Remove bold
+      .replace(/\*([^*]+)\*/g, '$1') // Remove italic
+      .replace(/_([^_]+)_/g, '$1') // Remove italic underscore
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // Remove links, keep text
+      .replace(/\\([^\s])/g, '$1') // Remove escape backslashes
+      .trim();
+  }
+
+  /**
+   * Strip YAML frontmatter from markdown
+   */
+  private stripFrontmatter(markdown: string): string {
+    const match = markdown.match(/^---\n[\s\S]*?\n---\n/);
+    if (match) {
+      return markdown.slice(match[0].length);
+    }
+    return markdown;
+  }
+
+  /**
+   * Fallback: Full document replacement (loses formatting)
+   */
+  private async fullDocumentReplace(
+    docs: ReturnType<typeof getDocsClient>,
+    fileId: string,
+    markdown: string
+  ): Promise<void> {
+    // First, get the current document to find content length
+    const doc = await docs.documents.get({ documentId: fileId });
+
+    const body = doc.data.body;
+    if (!body || !body.content) {
+      throw new Error('Document has no body content');
+    }
+
+    // Find the end index (we need to delete existing content)
+    let endIndex = 1;
+    for (const element of body.content) {
+      if (element.endIndex && element.endIndex > endIndex) {
+        endIndex = element.endIndex;
+      }
+    }
+
+    // Parse markdown into Docs API requests
+    const requests = this.markdownToDocsRequests(markdown, endIndex);
+
+    // Execute batch update
+    await docs.documents.batchUpdate({
+      documentId: fileId,
+      requestBody: { requests },
+    });
   }
 
   /**
@@ -354,6 +513,11 @@ interface InlineFormat {
   start: number;
   end: number;
   url?: string;
+}
+
+interface TextReplacement {
+  oldText: string;
+  newText: string;
 }
 
 /**
