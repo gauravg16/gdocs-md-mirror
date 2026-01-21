@@ -157,7 +157,19 @@ gdocs_mirror:
   });
 
   it('should return null if no gdocs_mirror', () => {
-    const content = '# Content';
+    const content = `---
+title: "Some other frontmatter"
+---
+
+# Content without gdocs_mirror`;
+
+    const result = extractFileIdFromFrontmatter(content);
+
+    expect(result).toBeNull();
+  });
+
+  it('should return null if no frontmatter at all', () => {
+    const content = '# Just plain content\n\nNo frontmatter here.';
 
     const result = extractFileIdFromFrontmatter(content);
 

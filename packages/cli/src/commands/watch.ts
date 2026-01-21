@@ -3,7 +3,7 @@ import chalk from 'chalk';
 import {
   loadConfig,
   initLogger,
-  initDatabase,
+  initDatabaseAsync,
   createSyncEngine,
   createFileWatcher,
   initOAuth2Client,
@@ -22,7 +22,7 @@ export const watchCommand = new Command('watch')
     }
 
     const logger = initLogger(config.logLevel, true);
-    initDatabase();
+    await initDatabaseAsync();
 
     // Check authentication
     try {

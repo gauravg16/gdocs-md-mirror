@@ -5,7 +5,7 @@ import { exec } from 'child_process';
 import {
   loadConfig,
   initLogger,
-  initDatabase,
+  initDatabaseAsync,
   createSyncEngine,
   parseGdocFile,
   documentOps,
@@ -24,7 +24,7 @@ export const openCommand = new Command('open')
     }
 
     initLogger(config.logLevel, false);
-    initDatabase();
+    await initDatabaseAsync();
 
     const syncEngine = createSyncEngine(config);
 

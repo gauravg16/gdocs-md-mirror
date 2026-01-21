@@ -43,7 +43,7 @@ describe('parseGdocContent', () => {
   });
 
   it('should parse gdoc with resourceId field', () => {
-    const content = '{"resourceId": "1ResourceDoc", "url": "https://example.com"}';
+    const content = '{"resourceId": "1ResourceDoc"}';
     const result = parseGdocContent(content);
 
     expect(result).not.toBeNull();

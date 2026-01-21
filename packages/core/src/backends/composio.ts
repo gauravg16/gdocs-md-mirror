@@ -82,7 +82,7 @@ export class ComposioPushBackend implements PushBackend {
           throw new Error(`Composio API error: ${response.status} - ${errorText}`);
         }
 
-        const result = await response.json();
+        const result = await response.json() as { error?: string };
 
         if (result.error) {
           throw new Error(`Composio action error: ${result.error}`);

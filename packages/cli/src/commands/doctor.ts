@@ -8,7 +8,7 @@ import {
   getTokensPath,
   getDatabasePath,
   initLogger,
-  initDatabase,
+  initDatabaseAsync,
   initOAuth2Client,
   hasValidTokens,
   checkConnectivity,
@@ -83,7 +83,7 @@ export const doctorCommand = new Command('doctor')
     const dbSpinner = ora('Checking database...').start();
     try {
       initLogger('error', false);
-      initDatabase();
+      await initDatabaseAsync();
       dbSpinner.succeed(`Database: ${chalk.green('OK')}`);
       console.log(`  ${chalk.dim('Path:')} ${dbPath}`);
     } catch (error) {

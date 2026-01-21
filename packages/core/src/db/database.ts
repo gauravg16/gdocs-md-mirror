@@ -1,61 +1,111 @@
-import Database from 'better-sqlite3';
+import initSqlJs, { Database as SqlJsDatabase } from 'sql.js';
+import * as fs from 'fs';
 import type { Document, DocumentRow, SyncLogEntry } from '../types.js';
 import { MIGRATIONS } from './schema.js';
 import { getDatabasePath, getLogger } from '../utils/index.js';
 
-let db: Database.Database | null = null;
+let db: SqlJsDatabase | null = null;
+let dbPath: string | null = null;
 
 /**
  * Convert database row to Document object
  */
-function rowToDocument(row: DocumentRow): Document {
+function rowToDocument(row: Record<string, unknown>): Document {
   return {
-    id: row.id,
-    fileId: row.file_id,
-    gdocPath: row.gdoc_path,
-    mdPath: row.md_path,
-    title: row.title,
-    webViewLink: row.web_view_link,
-    lastRemoteModifiedTime: row.last_remote_modified_time,
-    lastRemoteHash: row.last_remote_hash,
-    lastLocalHash: row.last_local_hash,
-    lastPushedHash: row.last_pushed_hash,
+    id: row.id as number,
+    fileId: row.file_id as string,
+    gdocPath: row.gdoc_path as string,
+    mdPath: row.md_path as string,
+    title: row.title as string | null,
+    webViewLink: row.web_view_link as string | null,
+    lastRemoteModifiedTime: row.last_remote_modified_time as string | null,
+    lastRemoteHash: row.last_remote_hash as string | null,
+    lastLocalHash: row.last_local_hash as string | null,
+    lastPushedHash: row.last_pushed_hash as string | null,
     lastSyncDirection: row.last_sync_direction as 'pull' | 'push' | null,
-    lastSyncTime: row.last_sync_time,
+    lastSyncTime: row.last_sync_time as string | null,
     hasConflict: row.has_conflict === 1,
-    conflictCreatedAt: row.conflict_created_at,
-    conflictRemotePath: row.conflict_remote_path,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
+    conflictCreatedAt: row.conflict_created_at as string | null,
+    conflictRemotePath: row.conflict_remote_path as string | null,
+    createdAt: row.created_at as string,
+    updatedAt: row.updated_at as string,
   };
+}
+
+/**
+ * Convert sql.js result to array of objects
+ */
+function resultToObjects(result: initSqlJs.QueryExecResult[]): Record<string, unknown>[] {
+  if (!result || result.length === 0) return [];
+  const { columns, values } = result[0];
+  return values.map((row) => {
+    const obj: Record<string, unknown> = {};
+    columns.forEach((col, i) => {
+      obj[col] = row[i];
+    });
+    return obj;
+  });
+}
+
+/**
+ * Save database to file
+ */
+function saveDatabase(): void {
+  if (db && dbPath) {
+    const data = db.export();
+    const buffer = Buffer.from(data);
+    fs.writeFileSync(dbPath, buffer);
+  }
 }
 
 /**
  * Initialize database connection and run migrations
  */
-export function initDatabase(dbPath?: string): Database.Database {
+export async function initDatabaseAsync(path?: string): Promise<SqlJsDatabase> {
   const logger = getLogger();
-  const path = dbPath || getDatabasePath();
+  dbPath = path || getDatabasePath();
 
-  logger.debug({ path }, 'Initializing database');
+  logger.debug({ path: dbPath }, 'Initializing database');
 
-  db = new Database(path);
+  const SQL = await initSqlJs();
+
+  // Load existing database or create new
+  if (fs.existsSync(dbPath)) {
+    const fileBuffer = fs.readFileSync(dbPath);
+    db = new SQL.Database(fileBuffer);
+  } else {
+    db = new SQL.Database();
+  }
 
   // Enable foreign keys
-  db.pragma('foreign_keys = ON');
+  db.run('PRAGMA foreign_keys = ON');
 
   // Run migrations
   runMigrations(db);
+
+  // Save after migrations
+  saveDatabase();
 
   return db;
 }
 
 /**
+ * Synchronous init wrapper (initializes if needed)
+ */
+export function initDatabase(path?: string): SqlJsDatabase {
+  if (db) return db;
+
+  // For synchronous access, we need to block - but this is not ideal
+  // In practice, call initDatabaseAsync first
+  throw new Error('Database not initialized. Call initDatabaseAsync() first.');
+}
+
+/**
  * Get database instance
  */
-export function getDatabase(): Database.Database {
+export function getDatabase(): SqlJsDatabase {
   if (!db) {
-    return initDatabase();
+    throw new Error('Database not initialized. Call initDatabaseAsync() first.');
   }
   return db;
 }
@@ -65,19 +115,21 @@ export function getDatabase(): Database.Database {
  */
 export function closeDatabase(): void {
   if (db) {
+    saveDatabase();
     db.close();
     db = null;
+    dbPath = null;
   }
 }
 
 /**
  * Run pending migrations
  */
-function runMigrations(database: Database.Database): void {
+function runMigrations(database: SqlJsDatabase): void {
   const logger = getLogger();
 
   // Create migrations table if it doesn't exist
-  database.exec(`
+  database.run(`
     CREATE TABLE IF NOT EXISTS migrations (
       id INTEGER PRIMARY KEY,
       name TEXT NOT NULL,
@@ -86,20 +138,19 @@ function runMigrations(database: Database.Database): void {
   `);
 
   // Get applied migrations
-  const applied = database
-    .prepare('SELECT id FROM migrations')
-    .all()
-    .map((row) => (row as { id: number }).id);
+  const result = database.exec('SELECT id FROM migrations');
+  const applied = resultToObjects(result).map((row) => row.id as number);
 
   // Run pending migrations
   for (const migration of MIGRATIONS) {
     if (!applied.includes(migration.id)) {
       logger.info({ migration: migration.name }, 'Running migration');
       try {
-        database.exec(migration.sql);
-        database
-          .prepare('INSERT INTO migrations (id, name) VALUES (?, ?)')
-          .run(migration.id, migration.name);
+        database.run(migration.sql);
+        database.run('INSERT INTO migrations (id, name) VALUES (?, ?)', [
+          migration.id,
+          migration.name,
+        ]);
         logger.info({ migration: migration.name }, 'Migration completed');
       } catch (error) {
         logger.error({ error, migration: migration.name }, 'Migration failed');
@@ -118,10 +169,9 @@ export const documentOps = {
    */
   getByFileId(fileId: string): Document | null {
     const db = getDatabase();
-    const row = db.prepare('SELECT * FROM documents WHERE file_id = ?').get(fileId) as
-      | DocumentRow
-      | undefined;
-    return row ? rowToDocument(row) : null;
+    const result = db.exec('SELECT * FROM documents WHERE file_id = ?', [fileId]);
+    const rows = resultToObjects(result);
+    return rows.length > 0 ? rowToDocument(rows[0]) : null;
   },
 
   /**
@@ -129,10 +179,9 @@ export const documentOps = {
    */
   getByGdocPath(gdocPath: string): Document | null {
     const db = getDatabase();
-    const row = db.prepare('SELECT * FROM documents WHERE gdoc_path = ?').get(gdocPath) as
-      | DocumentRow
-      | undefined;
-    return row ? rowToDocument(row) : null;
+    const result = db.exec('SELECT * FROM documents WHERE gdoc_path = ?', [gdocPath]);
+    const rows = resultToObjects(result);
+    return rows.length > 0 ? rowToDocument(rows[0]) : null;
   },
 
   /**
@@ -140,10 +189,9 @@ export const documentOps = {
    */
   getByMdPath(mdPath: string): Document | null {
     const db = getDatabase();
-    const row = db.prepare('SELECT * FROM documents WHERE md_path = ?').get(mdPath) as
-      | DocumentRow
-      | undefined;
-    return row ? rowToDocument(row) : null;
+    const result = db.exec('SELECT * FROM documents WHERE md_path = ?', [mdPath]);
+    const rows = resultToObjects(result);
+    return rows.length > 0 ? rowToDocument(rows[0]) : null;
   },
 
   /**
@@ -151,8 +199,8 @@ export const documentOps = {
    */
   getAll(): Document[] {
     const db = getDatabase();
-    const rows = db.prepare('SELECT * FROM documents ORDER BY title').all() as DocumentRow[];
-    return rows.map(rowToDocument);
+    const result = db.exec('SELECT * FROM documents ORDER BY title');
+    return resultToObjects(result).map(rowToDocument);
   },
 
   /**
@@ -160,10 +208,8 @@ export const documentOps = {
    */
   getConflicts(): Document[] {
     const db = getDatabase();
-    const rows = db
-      .prepare('SELECT * FROM documents WHERE has_conflict = 1')
-      .all() as DocumentRow[];
-    return rows.map(rowToDocument);
+    const result = db.exec('SELECT * FROM documents WHERE has_conflict = 1');
+    return resultToObjects(result).map(rowToDocument);
   },
 
   /**
@@ -177,7 +223,8 @@ export const documentOps = {
 
     if (existing) {
       // Update
-      const stmt = db.prepare(`
+      db.run(
+        `
         UPDATE documents SET
           gdoc_path = COALESCE(?, gdoc_path),
           md_path = COALESCE(?, md_path),
@@ -194,30 +241,29 @@ export const documentOps = {
           conflict_remote_path = ?,
           updated_at = ?
         WHERE file_id = ?
-      `);
-
-      stmt.run(
-        doc.gdocPath,
-        doc.mdPath,
-        doc.title,
-        doc.webViewLink,
-        doc.lastRemoteModifiedTime,
-        doc.lastRemoteHash,
-        doc.lastLocalHash,
-        doc.lastPushedHash,
-        doc.lastSyncDirection,
-        doc.lastSyncTime,
-        doc.hasConflict !== undefined ? (doc.hasConflict ? 1 : 0) : null,
-        doc.conflictCreatedAt,
-        doc.conflictRemotePath,
-        now,
-        doc.fileId
+      `,
+        [
+          doc.gdocPath ?? null,
+          doc.mdPath ?? null,
+          doc.title ?? null,
+          doc.webViewLink ?? null,
+          doc.lastRemoteModifiedTime ?? null,
+          doc.lastRemoteHash ?? null,
+          doc.lastLocalHash ?? null,
+          doc.lastPushedHash ?? null,
+          doc.lastSyncDirection ?? null,
+          doc.lastSyncTime ?? null,
+          doc.hasConflict !== undefined ? (doc.hasConflict ? 1 : 0) : null,
+          doc.conflictCreatedAt ?? null,
+          doc.conflictRemotePath ?? null,
+          now,
+          doc.fileId,
+        ]
       );
-
-      return documentOps.getByFileId(doc.fileId)!;
     } else {
       // Insert
-      const stmt = db.prepare(`
+      db.run(
+        `
         INSERT INTO documents (
           file_id, gdoc_path, md_path, title, web_view_link,
           last_remote_modified_time, last_remote_hash, last_local_hash,
@@ -225,29 +271,30 @@ export const documentOps = {
           has_conflict, conflict_created_at, conflict_remote_path,
           created_at, updated_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-
-      stmt.run(
-        doc.fileId,
-        doc.gdocPath || '',
-        doc.mdPath || '',
-        doc.title,
-        doc.webViewLink,
-        doc.lastRemoteModifiedTime,
-        doc.lastRemoteHash,
-        doc.lastLocalHash,
-        doc.lastPushedHash,
-        doc.lastSyncDirection,
-        doc.lastSyncTime,
-        doc.hasConflict ? 1 : 0,
-        doc.conflictCreatedAt,
-        doc.conflictRemotePath,
-        now,
-        now
+      `,
+        [
+          doc.fileId,
+          doc.gdocPath || '',
+          doc.mdPath || '',
+          doc.title ?? null,
+          doc.webViewLink ?? null,
+          doc.lastRemoteModifiedTime ?? null,
+          doc.lastRemoteHash ?? null,
+          doc.lastLocalHash ?? null,
+          doc.lastPushedHash ?? null,
+          doc.lastSyncDirection ?? null,
+          doc.lastSyncTime ?? null,
+          doc.hasConflict ? 1 : 0,
+          doc.conflictCreatedAt ?? null,
+          doc.conflictRemotePath ?? null,
+          now,
+          now,
+        ]
       );
-
-      return documentOps.getByFileId(doc.fileId)!;
     }
+
+    saveDatabase();
+    return documentOps.getByFileId(doc.fileId)!;
   },
 
   /**
@@ -255,8 +302,10 @@ export const documentOps = {
    */
   delete(fileId: string): boolean {
     const db = getDatabase();
-    const result = db.prepare('DELETE FROM documents WHERE file_id = ?').run(fileId);
-    return result.changes > 0;
+    const before = documentOps.getByFileId(fileId);
+    db.run('DELETE FROM documents WHERE file_id = ?', [fileId]);
+    saveDatabase();
+    return before !== null;
   },
 
   /**
@@ -264,14 +313,18 @@ export const documentOps = {
    */
   clearConflict(fileId: string): void {
     const db = getDatabase();
-    db.prepare(`
+    db.run(
+      `
       UPDATE documents SET
         has_conflict = 0,
         conflict_created_at = NULL,
         conflict_remote_path = NULL,
         updated_at = ?
       WHERE file_id = ?
-    `).run(new Date().toISOString(), fileId);
+    `,
+      [new Date().toISOString(), fileId]
+    );
+    saveDatabase();
   },
 
   /**
@@ -279,13 +332,17 @@ export const documentOps = {
    */
   updatePaths(fileId: string, gdocPath: string, mdPath: string): void {
     const db = getDatabase();
-    db.prepare(`
+    db.run(
+      `
       UPDATE documents SET
         gdoc_path = ?,
         md_path = ?,
         updated_at = ?
       WHERE file_id = ?
-    `).run(gdocPath, mdPath, new Date().toISOString(), fileId);
+    `,
+      [gdocPath, mdPath, new Date().toISOString(), fileId]
+    );
+    saveDatabase();
   },
 };
 
@@ -298,10 +355,14 @@ export const syncLogOps = {
    */
   add(documentId: number | null, action: string, details?: Record<string, unknown>): void {
     const db = getDatabase();
-    db.prepare(`
+    db.run(
+      `
       INSERT INTO sync_log (document_id, action, details)
       VALUES (?, ?, ?)
-    `).run(documentId, action, details ? JSON.stringify(details) : null);
+    `,
+      [documentId, action, details ? JSON.stringify(details) : null]
+    );
+    saveDatabase();
   },
 
   /**
@@ -309,28 +370,21 @@ export const syncLogOps = {
    */
   getRecent(limit: number = 50): SyncLogEntry[] {
     const db = getDatabase();
-    const rows = db
-      .prepare(
-        `
+    const result = db.exec(
+      `
       SELECT * FROM sync_log
       ORDER BY created_at DESC
       LIMIT ?
-    `
-      )
-      .all(limit) as Array<{
-      id: number;
-      document_id: number | null;
-      action: string;
-      details: string | null;
-      created_at: string;
-    }>;
+    `,
+      [limit]
+    );
 
-    return rows.map((row) => ({
-      id: row.id,
-      documentId: row.document_id,
-      action: row.action,
-      details: row.details,
-      createdAt: row.created_at,
+    return resultToObjects(result).map((row) => ({
+      id: row.id as number,
+      documentId: row.document_id as number | null,
+      action: row.action as string,
+      details: row.details as string | null,
+      createdAt: row.created_at as string,
     }));
   },
 
@@ -342,9 +396,10 @@ export const syncLogOps = {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - daysOld);
 
-    const result = db
-      .prepare('DELETE FROM sync_log WHERE created_at < ?')
-      .run(cutoff.toISOString());
-    return result.changes;
+    const before = syncLogOps.getRecent(10000).length;
+    db.run('DELETE FROM sync_log WHERE created_at < ?', [cutoff.toISOString()]);
+    const after = syncLogOps.getRecent(10000).length;
+    saveDatabase();
+    return before - after;
   },
 };

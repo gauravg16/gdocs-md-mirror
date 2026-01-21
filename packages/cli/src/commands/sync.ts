@@ -5,7 +5,7 @@ import * as path from 'path';
 import {
   loadConfig,
   initLogger,
-  initDatabase,
+  initDatabaseAsync,
   createSyncEngine,
   initOAuth2Client,
   hasValidTokens,
@@ -26,7 +26,7 @@ export const syncCommand = new Command('sync')
     }
 
     initLogger(config.logLevel, true);
-    initDatabase();
+    await initDatabaseAsync();
 
     // Check authentication
     try {

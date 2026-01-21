@@ -10,25 +10,29 @@ import {
 import {
   loadConfig,
   initLogger,
-  initDatabase,
+  initDatabaseAsync,
   createSyncEngine,
   initOAuth2Client,
   hasValidTokens,
   documentOps,
   type Document,
-  type SyncStatus,
 } from '@gdocs-md/core';
 
 // Initialize core components
 const config = loadConfig();
 initLogger(config.logLevel || 'info', false);
-initDatabase();
 
+let dbInitialized = false;
 let syncEngine: ReturnType<typeof createSyncEngine> | null = null;
 
 async function ensureInitialized(): Promise<void> {
   if (!config.rootFolder) {
     throw new Error('gdocs-md not initialized. Run "gdocs-md init" first.');
+  }
+
+  if (!dbInitialized) {
+    await initDatabaseAsync();
+    dbInitialized = true;
   }
 
   if (!syncEngine) {

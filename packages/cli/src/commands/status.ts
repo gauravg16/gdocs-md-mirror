@@ -3,7 +3,7 @@ import chalk from 'chalk';
 import {
   loadConfig,
   initLogger,
-  initDatabase,
+  initDatabaseAsync,
   createSyncEngine,
   syncLogOps,
 } from '@gdocs-md/core';
@@ -20,7 +20,7 @@ export const statusCommand = new Command('status')
     }
 
     initLogger(config.logLevel, false);
-    initDatabase();
+    await initDatabaseAsync();
 
     const syncEngine = createSyncEngine(config);
     const status = syncEngine.getStatus();

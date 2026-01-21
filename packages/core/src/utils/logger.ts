@@ -1,9 +1,9 @@
-import pino from 'pino';
+import { pino, Logger, LoggerOptions } from 'pino';
 
-let logger: pino.Logger | null = null;
+let logger: Logger | null = null;
 
-export function initLogger(level: string = 'info', pretty: boolean = true): pino.Logger {
-  const options: pino.LoggerOptions = {
+export function initLogger(level: string = 'info', pretty: boolean = true): Logger {
+  const options: LoggerOptions = {
     level,
   };
 
@@ -26,13 +26,13 @@ export function initLogger(level: string = 'info', pretty: boolean = true): pino
   return logger;
 }
 
-export function getLogger(): pino.Logger {
+export function getLogger(): Logger {
   if (!logger) {
     logger = initLogger();
   }
   return logger;
 }
 
-export function setLogger(newLogger: pino.Logger): void {
+export function setLogger(newLogger: Logger): void {
   logger = newLogger;
 }

@@ -9,7 +9,7 @@ import {
   loadConfig,
   getConfigPath,
   initLogger,
-  initDatabase,
+  initDatabaseAsync,
   initOAuth2Client,
   startOAuthFlow,
   hasValidTokens,
@@ -169,7 +169,7 @@ export const initCommand = new Command('init')
     // Initialize database
     const spinner = ora('Initializing database...').start();
     try {
-      initDatabase();
+      await initDatabaseAsync();
       spinner.succeed('Database initialized');
     } catch (error) {
       spinner.fail('Failed to initialize database');
