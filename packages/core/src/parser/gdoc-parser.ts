@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import * as path from 'path';
 import type { GdocInfo } from '../types.js';
 import { getLogger } from '../utils/logger.js';
 
@@ -128,9 +129,6 @@ export function getDefaultMdPath(gdocPath: string): string {
  * Get the corresponding .md path for a .gdoc file (shadow mode)
  */
 export function getShadowMdPath(gdocPath: string, rootFolder: string, shadowRoot: string): string {
-  const fs = require('fs');
-  const path = require('path');
-
   // Get relative path from root
   const relativePath = path.relative(rootFolder, gdocPath);
 
