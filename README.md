@@ -197,8 +197,8 @@ Located at `~/.config/gdocs-md/config.json`:
 ```json
 {
   "rootFolder": "/Users/you/Library/CloudStorage/GoogleDrive-you@gmail.com/My Drive",
-  "mirrorMode": "sibling",
-  "shadowRoot": ".gdocs_md",
+  "mirrorMode": "shadow",
+  "shadowRoot": "gdocs-markdown",
   "pollingIntervalSeconds": 60,
   "pushBackend": "docs_api",
   "ignorePatterns": ["**/node_modules/**", "**/.git/**"],
@@ -211,8 +211,8 @@ Located at `~/.config/gdocs-md/config.json`:
 | Option | Description | Default |
 |--------|-------------|---------|
 | `rootFolder` | Path to your Google Drive sync folder | Required |
-| `mirrorMode` | `sibling` (same folder) or `shadow` (hidden folder) | `sibling` |
-| `shadowRoot` | Hidden folder name for shadow mode | `.gdocs_md` |
+| `mirrorMode` | `shadow` (dedicated folder) or `sibling` (same folder) | `shadow` |
+| `shadowRoot` | Folder name for shadow mode | `gdocs-markdown` |
 | `pollingIntervalSeconds` | How often to check for remote changes | `60` |
 | `pushBackend` | `docs_api` (direct) or `composio` (via Composio API) | `docs_api` |
 | `ignorePatterns` | Glob patterns to skip | `["**/node_modules/**"]` |
@@ -220,7 +220,18 @@ Located at `~/.config/gdocs-md/config.json`:
 
 ### Mirror Modes Explained
 
-**Sibling Mode** (recommended) — Markdown files alongside `.gdoc` files:
+**Shadow Mode** (recommended) — All markdown files in one dedicated folder:
+
+```
+My Drive/
+├── Project Proposal.gdoc
+├── Meeting Notes.gdoc
+└── gdocs-markdown/
+    ├── Project Proposal.md  ← Created by sync
+    └── Meeting Notes.md     ← Created by sync
+```
+
+**Sibling Mode** — Markdown files alongside `.gdoc` files (can clutter Drive):
 
 ```
 My Drive/
@@ -228,17 +239,6 @@ My Drive/
 ├── Project Proposal.md      ← Created by sync
 ├── Meeting Notes.gdoc
 └── Meeting Notes.md         ← Created by sync
-```
-
-**Shadow Mode** — Markdown files in a hidden folder:
-
-```
-My Drive/
-├── Project Proposal.gdoc
-├── Meeting Notes.gdoc
-└── .gdocs_md/
-    ├── Project Proposal.md  ← Created by sync
-    └── Meeting Notes.md     ← Created by sync
 ```
 
 ---
