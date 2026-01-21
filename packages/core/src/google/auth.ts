@@ -2,6 +2,7 @@ import { OAuth2Client } from 'google-auth-library';
 import { google } from 'googleapis';
 import * as http from 'http';
 import * as url from 'url';
+import { exec } from 'child_process';
 import { loadTokens, saveTokens, type TokenData, getLogger } from '../utils/index.js';
 
 // Required OAuth scopes
@@ -184,8 +185,7 @@ export async function startOAuthFlow(): Promise<TokenData> {
       logger.info(`Opening browser for authorization: ${authUrl}`);
 
       // Try to open browser (macOS)
-      const { exec } = require('child_process');
-      exec(`open "${authUrl}"`, (error: Error | null) => {
+      exec(`open "${authUrl}"`, (error) => {
         if (error) {
           logger.info('Could not open browser automatically. Please visit:');
           logger.info(authUrl);
